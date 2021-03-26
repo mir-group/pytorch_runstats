@@ -184,9 +184,8 @@ class RunningStats:
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
     def to(self, dtype=None, device=None) -> None:
-        if device is not None:
-            self._state = self._state.to(dtype=dtype, device=device)
-            self._n = self._n.to(device=device)
+        self._state = self._state.to(dtype=dtype, device=device)
+        self._n = self._n.to(device=device)
 
     def current_result(self):
         """Get the current value of the running statistc."""
