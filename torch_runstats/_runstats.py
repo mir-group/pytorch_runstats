@@ -94,7 +94,14 @@ class RunningStats:
         Returns:
             the aggregated statistics _for this batch_. Accumulated statistics up to this point can be retreived with ``current_result()``.
         """
-        assert batch.shape[1:] == self._in_dim
+        if batch.shape == self._in_dim:
+            batch = batch.unsqueeze(0)
+        elif batch.shape[1:] == self._in_dim:
+            pass
+        else:
+            raise ValueError(
+                f"Data shape of batch, {batch.shape}, does not match the input data dimension of this RunningStats, {self._in_dim}"
+            )
 
         if self._reduction == Reduction.COUNT:
             raise NotImplementedError

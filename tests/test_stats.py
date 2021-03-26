@@ -168,7 +168,7 @@ def test_zeros(reduction, allclose):
 
 def test_raises():
     runstats = RunningStats(dim=4, reduction=Reduction.MEAN)
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         runstats.accumulate_batch(torch.zeros(10, 2))
 
 
