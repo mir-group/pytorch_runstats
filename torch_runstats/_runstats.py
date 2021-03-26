@@ -1,11 +1,19 @@
 """Batched running statistics for PyTorch."""
 
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, Sequence
 import enum
 import numbers
 
 import torch
 from torch_scatter import scatter
+
+
+def _prod(x):
+    """Compute the product of a sequence."""
+    out = 1
+    for a in x:
+        out *= a
+    return out
 
 
 class Reduction(enum.Enum):
@@ -25,10 +33,17 @@ class RunningStats:
         reduction (Reduction): the statistic to compute
     """
 
+    _in_dim: Tuple[int, ...]
+    _dim: Tuple[int, ...]
+    _reduce_dims: Tuple[int, ...]
+    _reduction_factor: int
+    _reduction: Reduction
+
     def __init__(
         self,
-        dim: Union[int, Tuple[int]] = 1,
+        dim: Union[int, Tuple[int, ...]] = 1,
         reduction: Reduction = Reduction.MEAN,
+        reduce_dims: Union[int, Sequence[int]] = tuple(),
         weighted: bool = False,
     ):
         if isinstance(dim, numbers.Integral):
@@ -37,13 +52,35 @@ class RunningStats:
             self._dim = dim
         else:
             raise TypeError(f"Invalid dim {dim}")
+        self._in_dim = self._dim
+
+        if isinstance(reduce_dims, numbers.Integral):
+            self._reduce_dims = (reduce_dims,)
+        else:
+            self._reduce_dims = tuple(set(reduce_dims))
+        if len(self._reduce_dims) > 0:
+            if min(self._reduce_dims) < 0 or max(self._reduce_dims) >= len(self._dim):
+                raise ValueError(
+                    f"Invalid dimension indexes in reduce_dims {self._reduce_dims}"
+                )
+            # we do reduce other dims, make a new _dim
+            self._dim = tuple(
+                d for i, d in enumerate(self._in_dim) if i not in self._reduce_dims
+            )
+            self._reduction_factor = _prod(
+                d for i, d in enumerate(self._in_dim) if i in self._reduce_dims
+            )
+        else:
+            self._reduction_factor = 1
 
         if reduction not in (Reduction.MEAN, Reduction.RMS):
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
         self._reduction = reduction
+
         self.weighted = weighted
         if weighted:
             raise NotImplementedError
+
         self.reset()
 
     def accumulate_batch(
@@ -57,18 +94,21 @@ class RunningStats:
         Returns:
             the aggregated statistics _for this batch_. Accumulated statistics up to this point can be retreived with ``current_result()``.
         """
-        assert batch.shape[1:] == self._dim
+        assert batch.shape[1:] == self._in_dim
 
         if self._reduction == Reduction.COUNT:
             raise NotImplementedError
         else:
             if accumulate_by is None:
                 # accumulate everything into the first bin
-                N = batch.shape[0]
+                # the number of samples we have is the size of the
+                # extra dims times how many samples we have
+                N = batch.shape[0] * self._reduction_factor
+                reduce_in_dims = tuple(i + 1 for i in self._reduce_dims)
                 if self._reduction == Reduction.MEAN:
-                    new_sum = batch.sum(dim=0)
+                    new_sum = batch.sum(dim=(0,) + reduce_in_dims)
                 elif self._reduction == Reduction.RMS:
-                    new_sum = torch.square(batch).sum(dim=0)
+                    new_sum = torch.square(batch).sum(dim=(0,) + reduce_in_dims)
 
                 # accumulate
                 self._state[0] += (new_sum - N * self._state[0]) / (self._n[0, 0] + N)
@@ -82,11 +122,13 @@ class RunningStats:
 
                 return new_sum
             else:
+                # reduce along the first (batch) dimension using accumulate_by
                 if self._reduction == Reduction.MEAN:
                     new_sum = scatter(batch, accumulate_by, dim=0)
                 elif self._reduction == Reduction.RMS:
                     new_sum = scatter(torch.square(batch), accumulate_by, dim=0)
 
+                # do we need new bins?
                 if new_sum.shape[0] > self._n_bins:
                     # time to expand
                     N_to_add = new_sum.shape[0] - self._n_bins
@@ -100,7 +142,14 @@ class RunningStats:
                     assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
                     self._n_bins += N_to_add
 
+                # How many samples did we see in each bin?
                 N = torch.bincount(accumulate_by).reshape([-1, 1])
+
+                # Now, reduce along the other reduction dimensions
+                if len(self._reduce_dims) > 0:
+                    new_sum = new_sum.sum(dim=self._reduce_dims)
+                    # Each sample is now a reduction over _reduction_factor samples
+                    N *= self._reduction_factor
 
                 N_bins_new = new_sum.shape[0]
                 bshape = (N_bins_new,) + (1,) * len(self._dim)
@@ -145,7 +194,7 @@ class RunningStats:
 
     @property
     def dim(self) -> int:
-        return self._dim
+        return self._in_dim
 
     @property
     def reduction(self) -> Reduction:
