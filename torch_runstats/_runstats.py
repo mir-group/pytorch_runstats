@@ -9,7 +9,7 @@ from torch_scatter import scatter
 
 
 def _prod(x):
-    """Compute the product of a sequence."""
+    """Compute the product of an iterable."""
     out = 1
     for a in x:
         out *= a
@@ -29,8 +29,10 @@ class RunningStats:
     """Compute running statistics over batches of samples.
 
     Args:
-        dim: the shape of a sample
+        dim: the shape of a single sample
         reduction: the statistic to compute
+        reduce_dims: extra dimensions within each sample to reduce over.
+            This is a tuple of dimension indexes that are interpreted as dimension indexes within each *sample*: ``reduce_dims=(1,)`` implies that in a batch of size ``(N, A, B, C)`` with sample size ``(A, B, C)`` the ``N`` and ``B`` dimensions will be reduced over.
     """
 
     _in_dim: Tuple[int, ...]
@@ -86,13 +88,17 @@ class RunningStats:
     def accumulate_batch(
         self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
-        """Accumulate a batch of samples into running statistics.
+        """Accumulate a batch of samples into the running statistics.
 
         Args:
-            batch (torch.Tensor [N_samples, dim]): the batch of samples to process.
+            batch: tensor of shape ``(N_samples,) + self.dim``. The batch of samples to process.
+            accumulate_by: tensor of indexes of shape ``(N_samples,)``.
+                If provided, the nth sample will be accumulated into the ``accumulate_by[n]``th bin. If ``None`` (the default), all samples will be accumulated into the first (0th) bin.
 
         Returns:
-            the aggregated statistics _for this batch_. Accumulated statistics up to this point can be retreived with ``current_result()``.
+            tensor of shape ``(N_bins,) + self.output_dim`` giving the aggregated statistics *for this input batch*. Accumulated statistics up to this point can be retreived with ``current_result()``.
+
+            ``N_bins`` is ``accumulate_by.max() + 1`` --- the number of bins in the batch --- and not the overall number of bins ``self.n_bins``.
         """
         if batch.shape == self._in_dim:
             batch = batch.unsqueeze(0)
@@ -126,7 +132,7 @@ class RunningStats:
                 if self._reduction == Reduction.RMS:
                     new_sum.sqrt_()
 
-                return new_sum
+                return new_sum.unsqueeze(0)
             else:
                 # How many samples did we see in each bin?
                 N = torch.bincount(accumulate_by).reshape([-1, 1])
@@ -173,9 +179,15 @@ class RunningStats:
 
                 return new_sum
 
-    def reset(self) -> None:
-        """Forget all previously accumulated state."""
-        if hasattr(self, "_state"):
+    def reset(self, reset_n_bins: bool = False) -> None:
+        """Forget all previously accumulated state.
+
+        This method does *not* forget ``self.n_bins`` unless ``reset_n_bins`` is True.
+
+        Args:
+            reset_n_bins: whether to reset this object to one accumulation bin. This defaults to False on the assumption that a reset object will likely be used to process data with a similar or equal number of bins.
+        """
+        if not reset_n_bins and hasattr(self, "_state"):
             self._state.fill_(0.0)
             self._n.fill_(0)
         else:
@@ -184,11 +196,21 @@ class RunningStats:
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
     def to(self, dtype=None, device=None) -> None:
+        """Move this ``RunningStats`` to a new dtyle and/or device.
+
+        Args:
+            dtype: like ``torch.Tensor.to``
+            device: like ``torch.Tensor.to``
+        """
         self._state = self._state.to(dtype=dtype, device=device)
         self._n = self._n.to(device=device)
 
-    def current_result(self):
-        """Get the current value of the running statistc."""
+    def current_result(self) -> torch.Tensor:
+        """Get the current value of the running statistic.
+
+        Returns:
+            A tensor of shape ``(self.n_bins,) + self.output_dim``. The nth bin contains the accumulated statistics for all processed samples with the corresponding ``accumulate_by`` index
+        """
         assert self._state.shape == (self._n_bins,) + self._dim
         if self._reduction == Reduction.MEAN:
             return self._state.clone()
@@ -197,12 +219,30 @@ class RunningStats:
 
     @property
     def n(self) -> torch.Tensor:
-        return self._n.squeeze(0)
+        """The number of samples processed so far in each bin."""
+        return self._n.squeeze(1)
+
+    @property
+    def n_bins(self) -> int:
+        """The number of bins for ``accumulate_by`` currently maintained by this object."""
+        return self._n_bins
 
     @property
     def dim(self) -> int:
+        """The shape of a single input sample for this ``RunningStats``"""
         return self._in_dim
 
     @property
+    def output_dim(self) -> int:
+        """The shape of the output statistic."""
+        return self._dim
+
+    @property
+    def reduce_dims(self) -> Tuple[int, ...]:
+        """Indexes of dimensions in each sample that will be reduced."""
+        return self._reduce_dims
+
+    @property
     def reduction(self) -> Reduction:
+        """The reduction computed by this object."""
         return self._reduction
