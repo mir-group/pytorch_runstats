@@ -169,24 +169,49 @@ def test_raises():
         runstats.accumulate_batch(torch.zeros(10, 2))
 
 
-@pytest.mark.parametrize("dim", [1, 3, (2, 3), torch.Size((1, 2, 1))])
+@pytest.mark.parametrize(
+    "dim,reduce_dims",
+    [
+        (1, tuple()),
+        (3, tuple()),
+        ((2, 3), tuple()),
+        (torch.Size((1, 2, 1)), tuple()),
+        (torch.Size((1, 2, 1)), (1,)),
+        (torch.Size((3, 2, 4)), (0, 2)),
+    ],
+)
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
 @pytest.mark.parametrize("do_accumulate_by", [True, False])
-def test_one_acc(dim, reduction, do_accumulate_by, allclose):
-    runstats = RunningStats(dim=dim, reduction=reduction)
+def test_one_acc(dim, reduce_dims, reduction, do_accumulate_by, allclose):
+    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
+    reduce_in_dims = tuple(i + 1 for i in reduce_dims)
     batch = torch.randn((random.randint(3, 10),) + runstats.dim)
     if do_accumulate_by:
         accumulate_by = torch.randint(0, random.randint(1, 5), size=(batch.shape[0],))
-        if reduction == Reduction.MEAN:
-            truth = scatter(batch, accumulate_by, dim=0, reduce="mean")
-        elif reduction == Reduction.RMS:
-            truth = scatter(batch.square(), accumulate_by, dim=0, reduce="mean").sqrt()
         res = runstats.accumulate_batch(batch, accumulate_by=accumulate_by)
+
+        if reduction == Reduction.RMS:
+            batch = batch.square()
+
+        outs = []
+        for i in range(max(accumulate_by) + 1):
+            tmp = batch[accumulate_by == i].mean(dim=(0,) + reduce_in_dims)
+            torch.nan_to_num_(tmp, nan=0.0)
+            outs.append(tmp)
+
+        truth = torch.stack(outs, dim=0)
+        assert truth.shape[1:] == tuple(
+            d for i, d in enumerate(runstats.dim) if i not in reduce_dims
+        )
+
+        if reduction == Reduction.RMS:
+            truth.sqrt_()
     else:
-        if reduction == Reduction.MEAN:
-            truth = batch.mean(dim=0)
-        elif reduction == Reduction.RMS:
-            truth = batch.square().mean(dim=0).sqrt()
         res = runstats.accumulate_batch(batch)
+        if reduction == Reduction.MEAN:
+            truth = batch.mean(dim=(0,) + reduce_in_dims)
+        elif reduction == Reduction.RMS:
+            truth = batch.square().mean(dim=(0,) + reduce_in_dims).sqrt()
+
     assert allclose(truth, res)
     assert allclose(truth, runstats.current_result())
