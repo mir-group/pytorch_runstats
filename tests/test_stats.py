@@ -27,7 +27,10 @@ class StatsTruth:
         else:
             self._dim = tuple(dim)
         self._reduction = reduction
-        self._reduce_dims = tuple(reduce_dims)
+        if isinstance(reduce_dims, int):
+            self._reduce_dims = (reduce_dims,)
+        else:
+            self._reduce_dims = tuple(reduce_dims)
         self._n_bins = 0
         self.reset()
 
