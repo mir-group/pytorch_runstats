@@ -8,7 +8,7 @@ import random
 import torch
 from torch_scatter import scatter
 
-from nequip.utils.stats import RunningStats, Reduction
+from torch_runstats import RunningStats, Reduction
 
 
 @pytest.fixture(scope="module")
