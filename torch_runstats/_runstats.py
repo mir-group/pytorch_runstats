@@ -64,7 +64,7 @@ class RunningStats:
         else:
             if accumulate_by is None:
                 # accumulate everything into the first bin
-                N = batch.shape[0] if len(batch.shape)> 0 else 1
+                N = batch.shape[0] if len(batch.shape) > 0 else 1
                 if self._reduction == Reduction.MEAN:
                     new_sum = batch.sum(dim=0)
                 elif self._reduction == Reduction.RMS:
@@ -130,6 +130,11 @@ class RunningStats:
             self._n_bins = 1
             self._n = torch.zeros((self._n_bins, 1), dtype=torch.long)
             self._state = torch.zeros((self._n_bins,) + self._dim)
+
+    def to(self, device=None) -> None:
+        if device is not None:
+            self._state = self._state.to(device)
+            self._n = self._n.to(device)
 
     def current_result(self):
         """Get the current value of the running statistc."""

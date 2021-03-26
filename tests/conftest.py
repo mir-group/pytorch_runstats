@@ -1,18 +1,14 @@
-
 import pytest
 
 import torch
 
 FLOAT_TOLERANCE = {
     t: torch.as_tensor(v, dtype=t)
-    for t, v in {
-        torch.float32: 1e-7,
-        torch.float64: 1e-10
-    }.items()
+    for t, v in {torch.float32: 1e-7, torch.float64: 1e-10}.items()
 }
 
 
-@pytest.fixture(scope='session', autouse=True, params=['float32', 'float64'])
+@pytest.fixture(scope="session", autouse=True, params=["float32", "float64"])
 def float_tolerance(request):
     """Run all tests with various PyTorch default dtypes.
 
@@ -23,10 +19,7 @@ def float_tolerance(request):
         A precision threshold to use for closeness tests.
     """
     old_dtype = torch.get_default_dtype()
-    dtype = {
-        'float32': torch.float32,
-        'float64': torch.float64
-    }[request.param]
+    dtype = {"float32": torch.float32, "float64": torch.float64}[request.param]
     torch.set_default_dtype(dtype)
     yield FLOAT_TOLERANCE[dtype]
     torch.set_default_dtype(old_dtype)
