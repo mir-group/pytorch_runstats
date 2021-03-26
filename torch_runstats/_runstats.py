@@ -29,8 +29,8 @@ class RunningStats:
     """Compute running statistics over batches of samples.
 
     Args:
-        dim (int or tuple of int): the shape of a sample
-        reduction (Reduction): the statistic to compute
+        dim: the shape of a sample
+        reduction: the statistic to compute
     """
 
     _in_dim: Tuple[int, ...]
@@ -183,10 +183,10 @@ class RunningStats:
             self._n = torch.zeros((self._n_bins, 1), dtype=torch.long)
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
-    def to(self, device=None) -> None:
+    def to(self, dtype=None, device=None) -> None:
         if device is not None:
-            self._state = self._state.to(device)
-            self._n = self._n.to(device)
+            self._state = self._state.to(dtype=dtype, device=device)
+            self._n = self._n.to(device=device)
 
     def current_result(self):
         """Get the current value of the running statistc."""
