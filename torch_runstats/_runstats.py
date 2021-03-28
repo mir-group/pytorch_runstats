@@ -75,6 +75,8 @@ class RunningStats:
         else:
             self._reduction_factor = 1
 
+        self._out_dim = tuple(self._dim[i] for i in range(len(self._dim)) if i not in self._reduce_dims)
+
         if reduction not in (Reduction.MEAN, Reduction.RMS):
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
         self._reduction = reduction
@@ -235,7 +237,7 @@ class RunningStats:
     @property
     def output_dim(self) -> int:
         """The shape of the output statistic."""
-        return self._dim
+        return self._out_dim
 
     @property
     def reduce_dims(self) -> Tuple[int, ...]:
