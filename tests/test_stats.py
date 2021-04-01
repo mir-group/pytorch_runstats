@@ -20,7 +20,11 @@ class StatsTruth:
     """Inefficient ground truth for RunningStats."""
 
     def __init__(
-        self, dim=1, reduction: Reduction = Reduction.MEAN, reduce_dims=tuple()
+        self,
+        dim=1,
+        reduction: Reduction = Reduction.MEAN,
+        reduce_dims=tuple(),
+        weighted=False,
     ):
         if isinstance(dim, int):
             self._dim = (dim,)
@@ -32,61 +36,66 @@ class StatsTruth:
         else:
             self._reduce_dims = tuple(reduce_dims)
         self._n_bins = 0
+        self.weighted = weighted
         self.reset()
 
     def accumulate_batch(
-        self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
+        self,
+        batch: torch.Tensor,
+        accumulate_by: Optional[torch.Tensor] = None,
+        weight=None,
     ) -> torch.Tensor:
         if accumulate_by is None:
             accumulate_by = torch.zeros(len(batch), dtype=torch.long)
+
         if hasattr(self, "_state"):
             self._state = torch.cat((self._state, batch), dim=0)
             self._acc = torch.cat((self._acc, accumulate_by), dim=0)
+            if self.weighted:
+                self._weights = torch.cat((self._weights, weight), dim=0)
         else:
             self._state = batch.clone()
             self._acc = accumulate_by.clone()
+            if self.weighted:
+                self._weights = weight.clone()
 
         if self._acc.max() + 1 > self._n_bins:
             self._n_bins = int(self._acc.max() + 1)
 
-        if accumulate_by is None:
-            reduce_in_dims = tuple(i + 1 for i in self._reduce_dims)
-            if self._reduction == Reduction.MEAN:
-                return batch.mean(dim=(0,) + reduce_in_dims)
-            elif self._reduction == Reduction.RMS:
-                return batch.square().mean(dim=(0,) + reduce_in_dims).sqrt()
+        if self.weighted:
+            mul_by = scatter(weight, accumulate_by, dim=0)
         else:
-            N = torch.bincount(accumulate_by)
+            mul_by = torch.bincount(accumulate_by)
             for d in self._reduce_dims:
-                N *= self._dim[d]
-            N = 1 / N
-            torch.nan_to_num_(N, nan=0.0, posinf=0.0, neginf=0.0)
+                mul_by *= self._dim[d]
+        mul_by = 1.0 / mul_by
+        torch.nan_to_num_(mul_by, nan=0.0, posinf=0.0, neginf=0.0)
 
-            if self._reduction == Reduction.RMS:
-                batch = batch.square()
+        if self._reduction == Reduction.RMS:
+            batch = batch.square()
 
-            if len(self._reduce_dims) > 0:
-                batch = batch.sum(dim=tuple(i + 1 for i in self._reduce_dims))
+        if len(self._reduce_dims) > 0:
+            batch = batch.sum(dim=tuple(i + 1 for i in self._reduce_dims))
 
-            N = N.reshape((len(N),) + (1,) * (batch.ndim - 1))
+        mul_by = mul_by.reshape((len(mul_by),) + (1,) * (batch.ndim - 1))
 
-            if self._reduction == Reduction.MEAN:
-                return N * scatter(
+        if self._reduction == Reduction.MEAN:
+            return mul_by * scatter(
+                batch,
+                accumulate_by,
+                reduce="sum",
+                dim=0,
+            )
+        elif self._reduction == Reduction.RMS:
+            return (
+                mul_by
+                * scatter(
                     batch,
                     accumulate_by,
                     reduce="sum",
                     dim=0,
                 )
-            elif self._reduction == Reduction.RMS:
-                return (
-                    N
-                    * scatter(
-                        batch,
-                        accumulate_by,
-                        reduce="sum",
-                        dim=0,
-                    )
-                ).sqrt()
+            ).sqrt()
 
     def reset(self) -> None:
         if hasattr(self, "_state"):
