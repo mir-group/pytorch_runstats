@@ -75,20 +75,27 @@ class RunningStats:
         else:
             self._reduction_factor = 1
 
-        self._out_dim = tuple(self._dim[i] for i in range(len(self._dim)) if i not in self._reduce_dims)
+        self._out_dim = tuple(
+            self._dim[i] for i in range(len(self._dim)) if i not in self._reduce_dims
+        )
 
         if reduction not in (Reduction.MEAN, Reduction.RMS):
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
         self._reduction = reduction
 
-        self.weighted = weighted
-        if weighted:
-            raise NotImplementedError
+        self._weighted = weighted
+        if weighted and self._reduce_dims != tuple(range(len(self._reduce_dims))):
+            raise NotImplementedError(
+                "Weighting is not supported when dimensions other than the first dims after the batch dimension are reduced over"
+            )
 
         self.reset()
 
     def accumulate_batch(
-        self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
+        self,
+        batch: torch.Tensor,
+        accumulate_by: Optional[torch.Tensor] = None,
+        weight: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Accumulate a batch of samples into the running statistics.
 
@@ -96,6 +103,8 @@ class RunningStats:
             batch: tensor of shape ``(N_samples,) + self.dim``. The batch of samples to process.
             accumulate_by: tensor of indexes of shape ``(N_samples,)``.
                 If provided, the nth sample will be accumulated into the ``accumulate_by[n]``th bin. If ``None`` (the default), all samples will be accumulated into the first (0th) bin.
+            weight: tensor of shape ``(N_samples,)`` or shape ``(N_samples,) + tuple(self.dim[i] for i in self.reduce_dims)``
+                Optional weights for either each sample in the batch, or for all of the batch and reduction dimensions.
 
         Returns:
             tensor of shape ``(N_bins,) + self.output_dim`` giving the aggregated statistics *for this input batch*. Accumulated statistics up to this point can be retreived with ``current_result()``.
@@ -111,6 +120,19 @@ class RunningStats:
                 f"Data shape of batch, {batch.shape}, does not match the input data dimension of this RunningStats, {self._in_dim}"
             )
 
+        if self._weighted:
+            if weight is None:
+                raise ValueError("weight must be provided to weighted RunningStats")
+            full_weight_shape = (batch.shape[0],) + tuple(
+                self._dim[i] for i in self._reduce_dims
+            )
+            if weight.shape == (batch.shape[0],):
+                weight = weight.expand(full_weight_shape)
+            elif weight.shape == full_weight_shape:
+                pass
+            else:
+                raise ValueError(f"Invalid shape {weight.shape} for weight")
+
         if self._reduction == Reduction.COUNT:
             raise NotImplementedError
         else:
@@ -125,11 +147,21 @@ class RunningStats:
                 new_sum = batch.sum(dim=(0,) + tuple(i + 1 for i in self._reduce_dims))
 
                 # accumulate
-                self._state[0] += (new_sum - N * self._state[0]) / (self._n[0, 0] + N)
-                self._n[0, 0] += N
+                if self._weighted:
+                    total_weight = weight.sum()
+                    self._state[0] += (new_sum - total_weight * self._state[0]) / (
+                        self._total_weight[0, 0] + total_weight
+                    )
+                    # for the batch
+                    new_sum /= total_weight
+                else:
+                    self._state[0] += (new_sum - N * self._state[0]) / (
+                        self._n[0, 0] + N
+                    )
+                    # for the batch
+                    new_sum /= N
 
-                # for the batch
-                new_sum /= N
+                self._n[0, 0] += N
 
                 if self._reduction == Reduction.RMS:
                     new_sum.sqrt_()
@@ -159,21 +191,35 @@ class RunningStats:
                     self._n = torch.cat(
                         (self._n, self._n.new_zeros((N_to_add, 1))), dim=0
                     )
+                    if self._weighted:
+                        self._total_weight = torch.cat(
+                            (
+                                self._total_weight,
+                                self._total_weight.new_zeros((N_to_add, 1)),
+                            ),
+                            dim=0,
+                        )
                     assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
                     self._n_bins += N_to_add
 
                 N_bins_new = new_sum.shape[0]
                 bshape = (N_bins_new,) + (1,) * len(self._dim)
 
-                self._state[:N_bins_new] += (
-                    new_sum - N.reshape(bshape) * self._state[:N_bins_new]
-                ) / (self._n[:N_bins_new] + N).reshape(bshape)
+                if self._weighted:
+                    total_weight = scatter(weight, accumulate_by, dim=0)
+                    self._state[:N_bins_new] += (
+                        new_sum - total_weight * self._state[:N_bins_new]
+                    ) / (self._total_weight[:N_bins_new] + total_weight).reshape(bshape)
+                    new_sum /= total_weight
+                else:
+                    self._state[:N_bins_new] += (
+                        new_sum - N.reshape(bshape) * self._state[:N_bins_new]
+                    ) / (self._n[:N_bins_new] + N).reshape(bshape)
+                    new_sum /= N.reshape(bshape)
                 self._n[:N_bins_new] += N
+
                 # Make div by zero 0
                 torch.nan_to_num_(self._state, nan=0.0)
-
-                new_sum /= N.reshape(bshape)
-                # Make div by zero 0
                 torch.nan_to_num_(new_sum, nan=0.0)
 
                 if self._reduction == Reduction.RMS:
@@ -192,10 +238,14 @@ class RunningStats:
         if not reset_n_bins and hasattr(self, "_state"):
             self._state.fill_(0.0)
             self._n.fill_(0)
+            if self._weighted:
+                self._total_weight.fill_(0.0)
         else:
             self._n_bins = 1
             self._n = torch.zeros((self._n_bins, 1), dtype=torch.long)
             self._state = torch.zeros((self._n_bins,) + self._dim)
+            if self._weighted:
+                self._total_weight = torch.zeros((self._n_bins, 1))
 
     def to(self, dtype=None, device=None) -> None:
         """Move this ``RunningStats`` to a new dtyle and/or device.
@@ -206,6 +256,8 @@ class RunningStats:
         """
         self._state = self._state.to(dtype=dtype, device=device)
         self._n = self._n.to(device=device)
+        if self._weighted:
+            self._total_weight = self._total_weight.to(dtype=dtype, device=device)
 
     def current_result(self) -> torch.Tensor:
         """Get the current value of the running statistic.
@@ -248,3 +300,8 @@ class RunningStats:
     def reduction(self) -> Reduction:
         """The reduction computed by this object."""
         return self._reduction
+
+    @property
+    def weighted(self) -> bool:
+        """Whether the ``RunningStats`` object is weighted."""
+        return self._weighted
