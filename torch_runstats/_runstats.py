@@ -206,7 +206,7 @@ class RunningStats:
                 bshape = (N_bins_new,) + (1,) * len(self._dim)
 
                 if self._weighted:
-                    total_weight = scatter(weight, accumulate_by, dim=0)
+                    total_weight = scatter(weight, accumulate_by, dim=0).unsqueeze(-1)
                     self._state[:N_bins_new] += (
                         new_sum - total_weight * self._state[:N_bins_new]
                     ) / (self._total_weight[:N_bins_new] + total_weight).reshape(bshape)
