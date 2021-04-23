@@ -75,7 +75,9 @@ class RunningStats:
         else:
             self._reduction_factor = 1
 
-        self._out_dim = tuple(self._dim[i] for i in range(len(self._dim)) if i not in self._reduce_dims)
+        self._out_dim = tuple(
+            self._dim[i] for i in range(len(self._dim)) if i not in self._reduce_dims
+        )
 
         if reduction not in (Reduction.MEAN, Reduction.RMS):
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
@@ -197,7 +199,7 @@ class RunningStats:
             self._n = torch.zeros((self._n_bins, 1), dtype=torch.long)
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
-    def to(self, dtype=None, device=None) -> None:
+    def to(self, device=None, dtype=None) -> None:
         """Move this ``RunningStats`` to a new dtyle and/or device.
 
         Args:
