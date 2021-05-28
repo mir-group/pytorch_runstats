@@ -17,6 +17,14 @@ def _prod(x):
 
 
 class Reduction(enum.Enum):
+    r"""Enum indicating a reduction over :math:`N` values :math:`x_i`.
+
+    Currently supported reductions:
+
+     * ``Reduction.MEAN``: :math:`\frac{1}{N}\sum_i^{N}{x_i}`
+     * ``Reduction.RMS``: :math:`\sqrt{\frac{1}{N}\sum_i^{N}{x_i^2}}`
+    """
+
     MEAN = "mean"
     MEAN_STD = "mean_std"
     RMS = "rms"
@@ -26,7 +34,7 @@ class Reduction(enum.Enum):
 # TODO: impliment counting
 # TODO: impliment stds
 class RunningStats:
-    """Compute running statistics over batches of samples.
+    r"""Compute running statistics over batches of samples.
 
     Args:
         dim: the shape of a single sample
