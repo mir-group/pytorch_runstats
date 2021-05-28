@@ -32,7 +32,9 @@ class RunningStats:
         dim: the shape of a single sample
         reduction: the statistic to compute
         reduce_dims: extra dimensions within each sample to reduce over.
-            This is a tuple of dimension indexes that are interpreted as dimension indexes within each *sample*: ``reduce_dims=(1,)`` implies that in a batch of size ``(N, A, B, C)`` with sample size ``(A, B, C)`` the ``N`` and ``B`` dimensions will be reduced over.
+            This is a tuple of dimension indexes that are interpreted as dimension indexes within each *sample*: ``reduce_dims=(1,)`` implies that in a batch of size ``(N, A, B, C)`` with ``dim = (A, B, C)`` the ``N`` and ``B`` dimensions will be reduced over. (To reduce over ``A`` instead, you would use ``reduce_dims=(0,)`` to reduce over the first non-batch dimension.)
+
+            By default an empty tuple, i.e., reduce only over the batch dimension.
     """
 
     _in_dim: Tuple[int, ...]
@@ -200,7 +202,7 @@ class RunningStats:
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
     def to(self, device=None, dtype=None) -> None:
-        """Move this ``RunningStats`` to a new dtyle and/or device.
+        """Move this ``RunningStats`` to a new dtype and/or device.
 
         Args:
             dtype: like ``torch.Tensor.to``
@@ -213,7 +215,7 @@ class RunningStats:
         """Get the current value of the running statistic.
 
         Returns:
-            A tensor of shape ``(self.n_bins,) + self.output_dim``. The nth bin contains the accumulated statistics for all processed samples with the corresponding ``accumulate_by`` index
+            A tensor of shape ``(self.n_bins,) + self.output_dim``. The nth bin contains the accumulated statistics for all processed samples whose ``accumulate_by`` was n.
         """
         assert self._state.shape == (self._n_bins,) + self._dim
         if self._reduction == Reduction.MEAN:
@@ -223,22 +225,26 @@ class RunningStats:
 
     @property
     def n(self) -> torch.Tensor:
-        """The number of samples processed so far in each bin."""
+        """The number of samples processed so far in each bin.
+
+        Returns:
+            A ``LongTensor`` of shape ``(self.n_bins,)``
+        """
         return self._n.squeeze(1)
 
     @property
     def n_bins(self) -> int:
-        """The number of bins for ``accumulate_by`` currently maintained by this object."""
+        """The number of ``accumulate_by`` bins currently maintained by this object."""
         return self._n_bins
 
     @property
-    def dim(self) -> int:
+    def dim(self) -> Tuple[int, ...]:
         """The shape of a single input sample for this ``RunningStats``"""
         return self._in_dim
 
     @property
-    def output_dim(self) -> int:
-        """The shape of the output statistic."""
+    def output_dim(self) -> Tuple[int, ...]:
+        """The shape of the output statistic for a single bin."""
         return self._out_dim
 
     @property
