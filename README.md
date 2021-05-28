@@ -1,6 +1,8 @@
 # pytorch_runstats
 Running/online statistics for PyTorch.
 
+[![Documentation Status](https://readthedocs.org/projects/pytorch-runstats/badge/?version=latest)](https://pytorch-runstats.readthedocs.io/en/latest/?badge=latest)
+
 `torch_runstats` implements memory-efficient online reductions on tensors. 
 
 Notable features:
@@ -9,7 +11,13 @@ Notable features:
  - "Batched"/"binned" reduction into multiple running tallies using a per-sample bin index. 
   This can be useful, for example, in accumulating statistics over samples by some kind of "type" index or for accumulating statistics per-graph in a `pytorch_geometric`-like [batching scheme](https://pytorch-geometric.readthedocs.io/en/latest/notes/batching.html). (This feature uses and is similar to [`torch_scatter`](https://pytorch-scatter.readthedocs.io/en/latest/functions/scatter.html).)
 
-**Note:** the implementations currently heavily use in-place operations for peformance and memory efficiency. This probably doesn't play nice with the autograd engine — this is currently likely the wrong library for accumulating running statistics you want to backward through. (See [TorchMetrics](https://torchmetrics.readthedocs.io/en/latest/) for a possible alternative.)
+**Note:** the implementations currently heavily uses in-place operations for peformance and memory efficiency. This probably doesn't play nice with the autograd engine — this is currently likely the wrong library for accumulating running statistics you want to backward through. (See [TorchMetrics](https://torchmetrics.readthedocs.io/en/latest/) for a possible alternative.)
+
+For more information, please see [the docs](https://pytorch-runstats.readthedocs.io/en/latest/).
+
+## Install
+
+`torch_runstats` requires PyTorch and [`torch_scatter`](https://pytorch-scatter.readthedocs.io/en/latest/functions/scatter.html), but neither is specified in `install_requires` for `pip` since both require manual installation for correct CUDA compatability.
 
 ## License
 

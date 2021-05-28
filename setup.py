@@ -22,6 +22,6 @@ setuptools.setup(
         "Development Status :: 4 - Beta",
     ],
     python_requires=">=3.6",
-    install_requires=["torch", "torch_scatter"],
+    install_requires=[],
     packages=["torch_runstats"],
 )
