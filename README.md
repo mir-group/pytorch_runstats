@@ -19,6 +19,26 @@ For more information, please see [the docs](https://pytorch-runstats.readthedocs
 
 `torch_runstats` requires PyTorch and [`torch_scatter`](https://pytorch-scatter.readthedocs.io/en/latest/functions/scatter.html), but neither is specified in `install_requires` for `pip` since both require manual installation for correct CUDA compatability.
 
+The library can be installed from PyPI:
+```bash
+$ pip install torch_runstats
+```
+
+The latest version of the code can also be installed from `git`:
+```bash
+$ git clone https://github.com/mir-group/pytorch_runstats
+```
+and install it by running
+```bash
+$ cd torch_runstats/
+$ pip install .
+```
+
+You can run the tests with
+```bash
+$ pytest tests/
+```
+
 ## License
 
 `pytorch_runstats` is distributed under an [MIT license](LICENSE).
