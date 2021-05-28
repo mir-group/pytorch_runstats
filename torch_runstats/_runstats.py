@@ -37,9 +37,11 @@ class RunningStats:
     r"""Compute running statistics over batches of samples.
 
     Args:
-        dim: the shape of a single sample
+        dim: the shape of a single sample. If an integer, interpreted as ``(dim,)``.
         reduction: the statistic to compute
         reduce_dims: extra dimensions within each sample to reduce over.
+            If an integer, interpreted as ``(reduce_dims,)``.
+
             This is a tuple of dimension indexes that are interpreted as dimension indexes within each *sample*: ``reduce_dims=(1,)`` implies that in a batch of size ``(N, A, B, C)`` with ``dim = (A, B, C)`` the ``N`` and ``B`` dimensions will be reduced over. (To reduce over ``A`` instead, you would use ``reduce_dims=(0,)`` to reduce over the first non-batch dimension.)
 
             By default an empty tuple, i.e., reduce only over the batch dimension.
