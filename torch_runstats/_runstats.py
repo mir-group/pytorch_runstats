@@ -265,7 +265,8 @@ class RunningStats:
                 dim=0,
             )
             self._n = torch.cat((self._n, self._n.new_zeros((N_to_add, )+self._n.shape[1:])), dim=0)
-            assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
+
+            # assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
             self._n_bins += N_to_add
 
         elif N_to_add < 0:
@@ -274,11 +275,6 @@ class RunningStats:
                 (new_sum, new_sum.new_zeros((-N_to_add,) + new_sum.shape[1:])), dim=0
             )
             N = torch.cat((N, N.new_zeros((-N_to_add,) + N.shape[1:])), dim=0)
-
-        ndim = len(self._state.shape)-len(N.shape)
-        N = N.reshape(N.shape+(1,)*ndim)
-        ndim = len(self._state.shape)-len(new_sum.shape)
-        new_sum = new_sum.reshape(new_sum.shape+(1,)*ndim)
 
         self._state += (new_sum - N * self._state) / (self._n + N)
         self._n += N
