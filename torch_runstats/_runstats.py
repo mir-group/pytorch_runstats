@@ -58,7 +58,6 @@ class RunningStats:
         dim: Union[int, Tuple[int, ...]] = 1,
         reduction: Reduction = Reduction.MEAN,
         reduce_dims: Union[int, Sequence[int]] = tuple(),
-        weighted: bool = False,
     ):
         if isinstance(dim, numbers.Integral):
             self._dim = (dim,)
@@ -95,13 +94,9 @@ class RunningStats:
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
         self._reduction = reduction
 
-        self.weighted = weighted
-        if weighted:
-            raise NotImplementedError
-
         self.reset()
 
-    def accumulate_batch(
+    def batch_result(
         self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
         """Accumulate a batch of samples into the running statistics.
@@ -110,6 +105,7 @@ class RunningStats:
             batch: tensor of shape ``(N_samples,) + self.dim``. The batch of samples to process.
             accumulate_by: tensor of indexes of shape ``(N_samples,)``.
                 If provided, the nth sample will be accumulated into the ``accumulate_by[n]``th bin. If ``None`` (the default), all samples will be accumulated into the first (0th) bin.
+                The indexes should be non-negative integer.
 
         Returns:
             tensor of shape ``(N_bins,) + self.output_dim`` giving the aggregated statistics *for this input batch*. Accumulated statistics up to this point can be retreived with ``current_result()``.
@@ -124,76 +120,173 @@ class RunningStats:
             raise ValueError(
                 f"Data shape of batch, {batch.shape}, does not match the input data dimension of this RunningStats, {self._in_dim}"
             )
-
         if self._reduction == Reduction.COUNT:
             raise NotImplementedError
+        elif self._reduction == Reduction.RMS:
+            batch = batch.square()
+
+        # zero the nan entries
+        not_nan = torch.isnan(batch)
+        has_nan = torch.any(not_nan)
+        if has_nan:
+            batch = torch.nan_to_num(batch, nan=0.0)
+            not_nan = ~not_nan
         else:
-            if self._reduction == Reduction.RMS:
-                batch = batch.square()
+            del not_nan
 
-            if accumulate_by is None:
-                # accumulate everything into the first bin
-                # the number of samples we have is the size of the
-                # extra dims times how many samples we have
-                N = batch.shape[0] * self._reduction_factor
-                new_sum = batch.sum(dim=(0,) + tuple(i + 1 for i in self._reduce_dims))
+        if len(self._reduce_dims) > 0:
+            reduce_dims = tuple(i + 1 for i in self._reduce_dims)
+            new_sum = batch.sum(dim=reduce_dims)
+        else:
+            reduce_dims = tuple()
+            new_sum = batch
+        # assert new_sum.shape == (batch.shape[0],) + self._dim
+        
+        if accumulate_by is None:
 
-                # accumulate
-                self._state[0] += (new_sum - N * self._state[0]) / (self._n[0, 0] + N)
-                self._n[0, 0] += N
+            # accumulate everything into the first bin
+            # the number of samples we have is the size of the
+            # extra dims times how many samples we have
+            if has_nan:
 
-                # for the batch
-                new_sum /= N
+                N = (not_nan).sum(dim=(0,) + reduce_dims)
+                new_sum = new_sum.sum(dim=0)
+                if isinstance(N, numbers.Integral):
+                    N = torch.as_tensor([N], dtype=torch.long)
+                    new_sum = torch.as_tensor([new_sum])
+                new_sum = new_sum.reshape((1,)+new_sum.shape)
+                N = N.reshape((1,)+N.shape)
 
-                if self._reduction == Reduction.RMS:
-                    new_sum.sqrt_()
-
-                return new_sum.unsqueeze(0)
             else:
-                # How many samples did we see in each bin?
-                N = torch.bincount(accumulate_by).reshape([-1, 1])
+
+                new_sum = new_sum.sum(dim=0)
+                # since all types are 0, the first dimension should be 1
+                new_sum = new_sum.reshape((1,)+new_sum.shape)
+                N = (
+                    torch.as_tensor([batch.shape[0]], dtype=torch.long)
+                    * self._reduction_factor
+                )
+                
+            if len(N.shape) < len(new_sum.shape):
+                N = N.reshape(N.shape+(1,)*(len(new_sum.shape)-len(N.shape)))
+
+            # for the batch
+            average = torch.nan_to_num(new_sum / N, nan=0.0)
+
+            if self._reduction == Reduction.RMS:
+                average.sqrt_()
+
+            return average.unsqueeze(0), new_sum, N
+
+        else:
+
+            # can only handle 1 dimensional accumulate_by
+            accumulate_by = accumulate_by.reshape([-1])
+            if accumulate_by.shape[0] != batch.shape[0]:
+                raise NotImplementedError("Cannot handle matrix accumulate_by")
+
+            if has_nan:
+
+                if len(self._reduce_dims) != (len(not_nan.shape) - 1):
+                    raise NotImplementedError("Cannot handle partial reduction")
+
+                # offset the accumulate by 1 to use 0 for nan entries
+                ndiff = len(not_nan.shape) - len(accumulate_by.shape)
+                species_component = (
+                    accumulate_by.reshape(accumulate_by.shape + ndiff * (1,)) + 1
+                ) * not_nan
+
+                # count species
+                unique_species_1, N = torch.unique(
+                    species_component, return_counts=True
+                )
+                unique_species_1 = unique_species_1[1:] - 1
+                unique_species_2 = torch.unique(accumulate_by)
+                N = N[1:]
+
+                # reduce along the first (batch) dimension using accumulate_by
+                new_sum = scatter(new_sum, accumulate_by, dim=0)
+
+                if len(N) != len(new_sum):
+                    bin_size = unique_species_2.max() + 1
+                    new_N = torch.zeros(bin_size, dtype=torch.long)
+                    for i, spe in enumerate(unique_species_1):
+                        new_N[spe] = N[i]
+                    N = new_N.reshape(new_sum.shape)
+
+            else:
+
+                # reduce along the first (batch) dimension using accumulate_by
+                new_sum = scatter(new_sum, accumulate_by, dim=0)
+
+                N = torch.bincount(accumulate_by).reshape((-1,)+(1,)*(len(new_sum.shape)-1))
 
                 # Reduce along non-batch dimensions
                 if len(self._reduce_dims) > 0:
-                    batch = batch.sum(dim=tuple(i + 1 for i in self._reduce_dims))
                     # Each sample is now a reduction over _reduction_factor samples
                     N *= self._reduction_factor
 
-                # reduce along the first (batch) dimension using accumulate_by
-                new_sum = scatter(batch, accumulate_by, dim=0)
+            average = torch.nan_to_num(new_sum / N, nan=0.0)
 
-                # do we need new bins?
-                if new_sum.shape[0] > self._n_bins:
-                    # time to expand
-                    N_to_add = new_sum.shape[0] - self._n_bins
-                    self._state = torch.cat(
-                        (self._state, self._state.new_zeros((N_to_add,) + self._dim)),
-                        dim=0,
-                    )
-                    self._n = torch.cat(
-                        (self._n, self._n.new_zeros((N_to_add, 1))), dim=0
-                    )
-                    assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
-                    self._n_bins += N_to_add
+            if self._reduction == Reduction.RMS:
+                average = average.sqrt_()
 
-                N_bins_new = new_sum.shape[0]
-                bshape = (N_bins_new,) + (1,) * len(self._dim)
+            return average, new_sum, N
 
-                self._state[:N_bins_new] += (
-                    new_sum - N.reshape(bshape) * self._state[:N_bins_new]
-                ) / (self._n[:N_bins_new] + N).reshape(bshape)
-                self._n[:N_bins_new] += N
-                # Make div by zero 0
-                torch.nan_to_num_(self._state, nan=0.0)
+    def accumulate_batch(
+        self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """Accumulate a batch of samples into the running statistics.
 
-                new_sum /= N.reshape(bshape)
-                # Make div by zero 0
-                torch.nan_to_num_(new_sum, nan=0.0)
+        Args:
+            batch: tensor of shape ``(N_samples,) + self.dim``. The batch of samples to process.
+            accumulate_by: tensor of indexes of shape ``(N_samples,)``.
+                If provided, the nth sample will be accumulated into the ``accumulate_by[n]``th bin. If ``None`` (the default), all samples will be accumulated into the first (0th) bin.
+                The indexes should be non-negative integer.
 
-                if self._reduction == Reduction.RMS:
-                    new_sum.sqrt_()
+        Returns:
+            tensor of shape ``(N_bins,) + self.output_dim`` giving the aggregated statistics *for this input batch*. Accumulated statistics up to this point can be retreived with ``current_result()``.
 
-                return new_sum
+            ``N_bins`` is ``accumulate_by.max() + 1`` --- the number of bins in the batch --- and not the overall number of bins ``self.n_bins``.
+        """
+
+        average, new_sum, N = self.batch_result(batch, accumulate_by)
+
+        # assert self._state.shape == ((self._n_bins,)+self._dim)
+        # assert self._n.shape == ((self._n_bins,)+self._dim)
+
+        # do we need new bins?
+        N_to_add = new_sum.shape[0] - self._n_bins
+        if N_to_add > 0:
+
+            # time to expand
+            self._state = torch.cat(
+                (self._state, self._state.new_zeros((N_to_add,) + self._state.shape[1:])),
+                dim=0,
+            )
+            self._n = torch.cat((self._n, self._n.new_zeros((N_to_add, )+self._n.shape[1:])), dim=0)
+            assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
+            self._n_bins += N_to_add
+
+        elif N_to_add < 0:
+
+            new_sum = torch.cat(
+                (new_sum, new_sum.new_zeros((-N_to_add,) + new_sum.shape[1:])), dim=0
+            )
+            N = torch.cat((N, N.new_zeros((-N_to_add,) + N.shape[1:])), dim=0)
+
+        ndim = len(self._state.shape)-len(N.shape)
+        N = N.reshape(N.shape+(1,)*ndim)
+        ndim = len(self._state.shape)-len(new_sum.shape)
+        new_sum = new_sum.reshape(new_sum.shape+(1,)*ndim)
+
+        self._state += (new_sum - N * self._state) / (self._n + N)
+        self._n += N
+
+        # Make div by zero 0
+        self._state = torch.nan_to_num_(self._state, nan=0.0)
+
+        return average
 
     def reset(self, reset_n_bins: bool = False) -> None:
         """Forget all previously accumulated state.
@@ -208,7 +301,7 @@ class RunningStats:
             self._n.fill_(0)
         else:
             self._n_bins = 1
-            self._n = torch.zeros((self._n_bins, 1), dtype=torch.long)
+            self._n = torch.zeros((self._n_bins,)+self._dim, dtype=torch.long)
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
     def to(self, device=None, dtype=None) -> None:

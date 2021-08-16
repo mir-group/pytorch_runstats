@@ -16,23 +16,8 @@ def allclose(float_tolerance):
     return functools.partial(torch.allclose, atol=float_tolerance)
 
 
-class StatsTruth:
+class StatsTruth(RunningStats):
     """Inefficient ground truth for RunningStats by directly storing all data"""
-
-    def __init__(
-        self, dim=1, reduction: Reduction = Reduction.MEAN, reduce_dims=tuple()
-    ):
-        if isinstance(dim, int):
-            self._dim = (dim,)
-        else:
-            self._dim = tuple(dim)
-        self._reduction = reduction
-        if isinstance(reduce_dims, int):
-            self._reduce_dims = (reduce_dims,)
-        else:
-            self._reduce_dims = tuple(reduce_dims)
-        self._n_bins = 0
-        self.reset()
 
     def accumulate_batch(
         self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
@@ -46,104 +31,51 @@ class StatsTruth:
         else:
             self._state = batch.clone()
             self._acc = accumulate_by.clone()
+            self._n_bins = 1
 
         if self._acc.max() + 1 > self._n_bins:
             self._n_bins = int(self._acc.max() + 1)
 
-        return self.batch_result(batch, accumulate_by, None)
+        average, _, _ = self.batch_result(batch, accumulate_by)
+        return average
 
-    def reset(self) -> None:
+    def reset(self, reset_n_bins: bool = False) -> None:
         if hasattr(self, "_state"):
             delattr(self, "_state")
             delattr(self, "_acc")
+        if reset_n_bins:
+            self._n_bins = 1
 
     def current_result(self):
         if not hasattr(self, "_state"):
             return torch.zeros(self._dim)
-        return self.batch_result(self._state, self._acc, self._n_bins)
+        average, _, _ = self.batch_result(self._state, self._acc)
+        
+        if len(average) < self._n_bins:
+            N_to_add = self._n_bins - len(average)
+            average = torch.cat((average, torch.zeros((N_to_add,)+average.shape[1:])))
 
-    def batch_result(self, batch, acc, _n_bins):
-
-        # zero the nan entries
-        not_nan = torch.isnan(batch)
-        has_nan = torch.any(not_nan)
-        if has_nan:
-            batch = torch.nan_to_num(batch, nan=0.0)
-            return self.with_nan(batch, acc, _n_bins, ~not_nan)
-        else:
-            del not_nan
-            return self.without_nan(batch, acc, _n_bins)
-
-    def without_nan(self, batch, acc, _n_bins):
-        if _n_bins is None:
-            N = torch.bincount(acc)
-        else:
-            N = torch.bincount(acc, minlength=_n_bins)
-        for d in self._reduce_dims:
-            N *= self._dim[d]
-        N = 1 / N
-        torch.nan_to_num_(N, nan=0.0, posinf=0.0, neginf=0.0)
-
-        if self._reduction == Reduction.RMS:
-            state = batch.square()
-        else:
-            state = batch
-
-        if len(self._reduce_dims) > 0:
-            state = state.sum(dim=tuple(i + 1 for i in self._reduce_dims))
-
-        N = N.reshape((len(N),) + (1,) * (state.ndim - 1))
-
-        if _n_bins is None:
-            out = N * scatter(state, acc, dim=0, reduce="sum")
-        else:
-            out = N * scatter(state, acc, dim=0, reduce="sum", dim_size=_n_bins)
-
-        if self._reduction == Reduction.RMS:
-            out.sqrt_()
-
-        return out
-
-    def with_nan(self, batch, acc, _n_bins, not_nan):
-        N = torch.bincount(acc, minlength=_n_bins)
-        for d in self._reduce_dims:
-            N *= self._dim[d]
-        N = 1 / N
-        torch.nan_to_num_(N, nan=0.0, posinf=0.0, neginf=0.0)
-
-        if self._reduction == Reduction.RMS:
-            state = self._state.square()
-        else:
-            state = self._state
-
-        if len(self._reduce_dims) > 0:
-            state = state.sum(dim=tuple(i + 1 for i in self._reduce_dims))
-
-        N = N.reshape((len(N),) + (1,) * (state.ndim - 1))
-
-        out = N * scatter(state, self._acc, dim=0, reduce="sum", dim_size=self._n_bins)
-
-        if self._reduction == Reduction.RMS:
-            out.sqrt_()
-
-        return out
-
+        return average
 
 
 @pytest.mark.parametrize(
-    "dim,reduce_dims",
+    "dim,reduce_dims,nan_attrs",
     [
-        (1, tuple()),
-        (3, tuple()),
-        ((2, 3), tuple()),
-        (torch.Size((1, 2, 1)), tuple()),
-        (torch.Size((1, 2, 1)), (1,)),
-        (torch.Size((3, 2, 4)), (0, 2)),
+        (1, tuple(), False),
+        (1, (0,), True),
+        (3, tuple(), False),
+        (3, (0,), True),
+        ((2, 3), tuple(), False),
+        (torch.Size((1, 2, 1)), tuple(), False),
+        (torch.Size((1, 2, 1)), (1,), False),
+        (torch.Size((3, 2, 4)), (0, 2), False),
+        (torch.Size((3, 2, 4)), (0, 1, 2), True),
     ],
 )
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
 @pytest.mark.parametrize("do_accumulate_by", [True, False])
-def test_runstats(dim, reduce_dims, reduction, do_accumulate_by, allclose):
+def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allclose):
+
     n_batchs = (random.randint(1, 4), random.randint(1, 4))
     truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
     runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
@@ -151,19 +83,24 @@ def test_runstats(dim, reduce_dims, reduction, do_accumulate_by, allclose):
     for n_batch in n_batchs:
         for _ in range(n_batch):
             batch = torch.randn((random.randint(1, 10),) + runstats.dim)
+            if nan_attrs:
+                batch.view(-1)[0] = float("NaN")
+
             if do_accumulate_by and random.choice((True, False)):
                 accumulate_by = torch.randint(
                     0, random.randint(1, 5), size=(batch.shape[0],)
                 )
-                truth = truth_obj.accumulate_batch(batch, accumulate_by=accumulate_by)
-                res = runstats.accumulate_batch(batch, accumulate_by=accumulate_by)
             else:
-                truth = truth_obj.accumulate_batch(batch)
-                res = runstats.accumulate_batch(batch)
+                accumulate_by = None
+
+            truth = truth_obj.accumulate_batch(batch, accumulate_by=accumulate_by)
+            res = runstats.accumulate_batch(batch, accumulate_by=accumulate_by)
             assert allclose(truth, res)
-        assert allclose(truth_obj.current_result(), runstats.current_result())
-        truth_obj.reset()
-        runstats.reset()
+        truth = truth_obj.current_result()
+        res = runstats.current_result()
+        assert allclose(truth, res)
+        truth_obj.reset(reset_n_bins=True)
+        runstats.reset(reset_n_bins=True)
 
 
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
