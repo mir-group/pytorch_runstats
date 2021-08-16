@@ -126,13 +126,10 @@ class RunningStats:
             batch = batch.square()
 
         # zero the nan entries
-        not_nan = torch.isnan(batch)
-        has_nan = torch.any(not_nan)
+        has_nan = torch.isnan(torch.mean(batch))
         if has_nan:
+            not_nan = (batch == batch).int()
             batch = torch.nan_to_num(batch, nan=0.0)
-            not_nan = ~not_nan
-        else:
-            del not_nan
 
         if len(self._reduce_dims) > 0:
             reduce_dims = tuple(i + 1 for i in self._reduce_dims)
@@ -187,32 +184,13 @@ class RunningStats:
 
             if has_nan:
 
-                if len(self._reduce_dims) != (len(not_nan.shape) - 1):
-                    raise NotImplementedError("Cannot handle partial reduction")
-
-                # offset the accumulate by 1 to use 0 for nan entries
-                ndiff = len(not_nan.shape) - len(accumulate_by.shape)
-                species_component = (
-                    accumulate_by.reshape(accumulate_by.shape + ndiff * (1,)) + 1
-                ) * not_nan
-
-                # count species
-                unique_species_1, N = torch.unique(
-                    species_component, return_counts=True
-                )
-                unique_species_1 = unique_species_1[1:] - 1
-                unique_species_2 = torch.unique(accumulate_by)
-                N = N[1:]
+                # get count
+                N = scatter(not_nan, accumulate_by, dim=0)
+                if len(self._reduce_dims) > 0:
+                    N = N.sum(dim=reduce_dims)
 
                 # reduce along the first (batch) dimension using accumulate_by
                 new_sum = scatter(new_sum, accumulate_by, dim=0)
-
-                if len(N) != len(new_sum):
-                    bin_size = unique_species_2.max() + 1
-                    new_N = torch.zeros(bin_size, dtype=torch.long)
-                    for i, spe in enumerate(unique_species_1):
-                        new_N[spe] = N[i]
-                    N = new_N.reshape(new_sum.shape)
 
             else:
 

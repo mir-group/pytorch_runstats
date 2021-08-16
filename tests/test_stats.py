@@ -59,21 +59,22 @@ class StatsTruth(RunningStats):
 
 
 @pytest.mark.parametrize(
-    "dim,reduce_dims,nan_attrs",
+    "dim,reduce_dims",
     [
-        (1, tuple(), False),
-        (1, (0,), True),
-        (3, tuple(), False),
-        (3, (0,), True),
-        ((2, 3), tuple(), False),
-        (torch.Size((1, 2, 1)), tuple(), False),
-        (torch.Size((1, 2, 1)), (1,), False),
-        (torch.Size((3, 2, 4)), (0, 2), False),
-        (torch.Size((3, 2, 4)), (0, 1, 2), True),
+        (1, tuple()),
+        (1, (0,)),
+        (3, tuple()),
+        (3, (0,)),
+        ((2, 3), tuple()),
+        (torch.Size((1, 2, 1)), tuple()),
+        (torch.Size((1, 2, 1)), (1,)),
+        (torch.Size((3, 2, 4)), (0, 2)),
+        (torch.Size((3, 2, 4)), (0, 1, 2)),
     ],
 )
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
 @pytest.mark.parametrize("do_accumulate_by", [True, False])
+@pytest.mark.parametrize("nan_attrs", [True, False])
 def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allclose):
 
     n_batchs = (random.randint(1, 4), random.randint(1, 4))
@@ -83,9 +84,8 @@ def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allc
     for n_batch in n_batchs:
         for _ in range(n_batch):
             batch = torch.randn((random.randint(1, 10),) + runstats.dim)
-            if nan_attrs:
+            if nan_attrs and random.choice([True, False]):
                 batch.view(-1)[0] = float("NaN")
-
             if do_accumulate_by and random.choice((True, False)):
                 accumulate_by = torch.randint(
                     0, random.randint(1, 5), size=(batch.shape[0],)
