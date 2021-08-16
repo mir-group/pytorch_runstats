@@ -17,7 +17,7 @@ def allclose(float_tolerance):
 
 
 class StatsTruth:
-    """Inefficient ground truth for RunningStats."""
+    """Inefficient ground truth for RunningStats by directly storing all data"""
 
     def __init__(
         self, dim=1, reduction: Reduction = Reduction.MEAN, reduce_dims=tuple()
@@ -37,6 +37,7 @@ class StatsTruth:
     def accumulate_batch(
         self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
+
         if accumulate_by is None:
             accumulate_by = torch.zeros(len(batch), dtype=torch.long)
         if hasattr(self, "_state"):
@@ -49,44 +50,7 @@ class StatsTruth:
         if self._acc.max() + 1 > self._n_bins:
             self._n_bins = int(self._acc.max() + 1)
 
-        if accumulate_by is None:
-            reduce_in_dims = tuple(i + 1 for i in self._reduce_dims)
-            if self._reduction == Reduction.MEAN:
-                return batch.mean(dim=(0,) + reduce_in_dims)
-            elif self._reduction == Reduction.RMS:
-                return batch.square().mean(dim=(0,) + reduce_in_dims).sqrt()
-        else:
-            N = torch.bincount(accumulate_by)
-            for d in self._reduce_dims:
-                N *= self._dim[d]
-            N = 1 / N
-            torch.nan_to_num_(N, nan=0.0, posinf=0.0, neginf=0.0)
-
-            if self._reduction == Reduction.RMS:
-                batch = batch.square()
-
-            if len(self._reduce_dims) > 0:
-                batch = batch.sum(dim=tuple(i + 1 for i in self._reduce_dims))
-
-            N = N.reshape((len(N),) + (1,) * (batch.ndim - 1))
-
-            if self._reduction == Reduction.MEAN:
-                return N * scatter(
-                    batch,
-                    accumulate_by,
-                    reduce="sum",
-                    dim=0,
-                )
-            elif self._reduction == Reduction.RMS:
-                return (
-                    N
-                    * scatter(
-                        batch,
-                        accumulate_by,
-                        reduce="sum",
-                        dim=0,
-                    )
-                ).sqrt()
+        return self.batch_result(batch, accumulate_by, None)
 
     def reset(self) -> None:
         if hasattr(self, "_state"):
@@ -96,7 +60,52 @@ class StatsTruth:
     def current_result(self):
         if not hasattr(self, "_state"):
             return torch.zeros(self._dim)
-        N = torch.bincount(self._acc, minlength=self._n_bins)
+        return self.batch_result(self._state, self._acc, self._n_bins)
+
+    def batch_result(self, batch, acc, _n_bins):
+
+        # zero the nan entries
+        not_nan = torch.isnan(batch)
+        has_nan = torch.any(not_nan)
+        if has_nan:
+            batch = torch.nan_to_num(batch, nan=0.0)
+            return self.with_nan(batch, acc, _n_bins, ~not_nan)
+        else:
+            del not_nan
+            return self.without_nan(batch, acc, _n_bins)
+
+    def without_nan(self, batch, acc, _n_bins):
+        if _n_bins is None:
+            N = torch.bincount(acc)
+        else:
+            N = torch.bincount(acc, minlength=_n_bins)
+        for d in self._reduce_dims:
+            N *= self._dim[d]
+        N = 1 / N
+        torch.nan_to_num_(N, nan=0.0, posinf=0.0, neginf=0.0)
+
+        if self._reduction == Reduction.RMS:
+            state = batch.square()
+        else:
+            state = batch
+
+        if len(self._reduce_dims) > 0:
+            state = state.sum(dim=tuple(i + 1 for i in self._reduce_dims))
+
+        N = N.reshape((len(N),) + (1,) * (state.ndim - 1))
+
+        if _n_bins is None:
+            out = N * scatter(state, acc, dim=0, reduce="sum")
+        else:
+            out = N * scatter(state, acc, dim=0, reduce="sum", dim_size=_n_bins)
+
+        if self._reduction == Reduction.RMS:
+            out.sqrt_()
+
+        return out
+
+    def with_nan(self, batch, acc, _n_bins, not_nan):
+        N = torch.bincount(acc, minlength=_n_bins)
         for d in self._reduce_dims:
             N *= self._dim[d]
         N = 1 / N
@@ -118,6 +127,7 @@ class StatsTruth:
             out.sqrt_()
 
         return out
+
 
 
 @pytest.mark.parametrize(
