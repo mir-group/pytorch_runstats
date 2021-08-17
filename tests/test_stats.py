@@ -50,7 +50,7 @@ class StatsTruth(RunningStats):
         if not hasattr(self, "_state"):
             return torch.zeros(self._dim)
         average, _, _ = self.batch_result(self._state, self._acc)
-        
+
         if len(average) < self._n_bins:
             N_to_add = self._n_bins - len(average)
             average = torch.cat((average, torch.zeros((N_to_add,)+average.shape[1:])))
@@ -78,8 +78,8 @@ class StatsTruth(RunningStats):
 def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allclose):
 
     n_batchs = (random.randint(1, 4), random.randint(1, 4))
-    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
-    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
+    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
+    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
 
     for n_batch in n_batchs:
         for _ in range(n_batch):

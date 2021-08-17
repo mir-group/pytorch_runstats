@@ -45,6 +45,7 @@ class RunningStats:
             This is a tuple of dimension indexes that are interpreted as dimension indexes within each *sample*: ``reduce_dims=(1,)`` implies that in a batch of size ``(N, A, B, C)`` with ``dim = (A, B, C)`` the ``N`` and ``B`` dimensions will be reduced over. (To reduce over ``A`` instead, you would use ``reduce_dims=(0,)`` to reduce over the first non-batch dimension.)
 
             By default an empty tuple, i.e., reduce only over the batch dimension.
+        has_nan: if True, the nan term in the matrix will be excluded for statstistics
     """
 
     _in_dim: Tuple[int, ...]
@@ -58,6 +59,7 @@ class RunningStats:
         dim: Union[int, Tuple[int, ...]] = 1,
         reduction: Reduction = Reduction.MEAN,
         reduce_dims: Union[int, Sequence[int]] = tuple(),
+        has_nan = False,
     ):
         if isinstance(dim, numbers.Integral):
             self._dim = (dim,)
@@ -93,6 +95,7 @@ class RunningStats:
         if reduction not in (Reduction.MEAN, Reduction.RMS):
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
         self._reduction = reduction
+        self.has_nan = has_nan
 
         self.reset()
 
@@ -126,7 +129,7 @@ class RunningStats:
             batch = batch.square()
 
         # zero the nan entries
-        has_nan = torch.isnan(torch.mean(batch))
+        has_nan = torch.isnan(torch.mean(batch)) and self.has_nan
         if has_nan:
             not_nan = (batch == batch).int()
             batch = torch.nan_to_num(batch, nan=0.0)
@@ -138,7 +141,7 @@ class RunningStats:
             reduce_dims = tuple()
             new_sum = batch
         # assert new_sum.shape == (batch.shape[0],) + self._dim
-        
+
         if accumulate_by is None:
 
             # accumulate everything into the first bin
@@ -163,7 +166,7 @@ class RunningStats:
                     torch.as_tensor([batch.shape[0]], dtype=torch.long)
                     * self._reduction_factor
                 )
-                
+
             if len(N.shape) < len(new_sum.shape):
                 N = N.reshape(N.shape+(1,)*(len(new_sum.shape)-len(N.shape)))
 
