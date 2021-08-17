@@ -150,13 +150,12 @@ class RunningStats:
             device = new_sum.device
             if has_nan:
 
-                N = (not_nan).sum(dim=(0,) + reduce_dims)
-                new_sum = new_sum.sum(dim=0)
-                # if isinstance(N, numbers.Integral):
-                #     N = torch.as_tensor([N], dtype=torch.long, device=device)
-                #     new_sum = torch.as_tensor([new_sum], device=device)
-                new_sum = new_sum.reshape((1,)+new_sum.shape)
-                N = N.reshape((1,)+N.shape)
+                if len(self._reduce_dims) > 0:
+                    N = (not_nan).sum(reduce_dims)
+                else:
+                    N = not_nan
+                new_sum = new_sum.sum(dim=0, keepdim=True)
+                N = N.sum(dim=0, keepdim=True)
 
             else:
 

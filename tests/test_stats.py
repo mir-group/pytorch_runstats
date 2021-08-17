@@ -145,6 +145,8 @@ def test_batching(do_accumulate_by, nan_attrs, allclose):
 
         res = runstats.current_result()
         assert allclose(truth, res)
+        print("T", truth)
+        print("R", res)
         runstats.reset(reset_n_bins=True)
 
 
