@@ -101,6 +101,51 @@ def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allc
         assert allclose(truth, res)
         truth_obj.reset(reset_n_bins=True)
         runstats.reset(reset_n_bins=True)
+        
+@pytest.mark.parametrize("do_accumulate_by", [True, False])
+@pytest.mark.parametrize("nan_attrs", [True, False])
+def test_batching(do_accumulate_by, nan_attrs, allclose):
+
+    n_samples = 100
+    dim = (3,)
+    reduction = Reduction.MEAN
+    reduce_dims = (0,)
+
+    # generate reference data
+    data = torch.randn((n_samples,) + dim)
+    accumulate_by = torch.randint(0, 5, size=(data.shape[0],)) if do_accumulate_by else None
+    if nan_attrs:
+        ids = torch.randperm(n_samples)[:10]
+        for idx in ids:
+            data.view(-1)[idx] = float("NaN")
+
+    # compute ground truth
+    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
+    truth_obj.accumulate_batch(data, accumulate_by=accumulate_by)
+    truth = truth_obj.current_result()
+    del truth_obj
+
+    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
+
+    for stride in [1, 3, 5, 7, 13, 100]:
+        n_batch = n_samples // stride
+        if n_batch*stride < n_samples:
+            n_batch += 1
+        count = 0
+        for idx in range(n_batch):
+
+            loid = count
+            hiid = count+stride
+            hiid = n_samples if hiid > n_samples else hiid
+            count += stride
+
+            batch = data[loid:hiid]
+            acc = None if accumulate_by is None else accumulate_by[loid:hiid]
+            runstats.accumulate_batch(batch, accumulate_by=acc)
+
+        res = runstats.current_result()
+        assert allclose(truth, res)
+        runstats.reset(reset_n_bins=True)
 
 
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])

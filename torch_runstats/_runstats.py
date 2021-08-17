@@ -151,9 +151,6 @@ class RunningStats:
 
                 N = (not_nan).sum(dim=(0,) + reduce_dims)
                 new_sum = new_sum.sum(dim=0)
-                if isinstance(N, numbers.Integral):
-                    N = torch.as_tensor([N], dtype=torch.long)
-                    new_sum = torch.as_tensor([new_sum])
                 new_sum = new_sum.reshape((1,)+new_sum.shape)
                 N = N.reshape((1,)+N.shape)
 
