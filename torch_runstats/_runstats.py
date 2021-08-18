@@ -201,10 +201,8 @@ class RunningStats:
 
                 N = torch.bincount(accumulate_by).reshape((-1,)+(1,)*(len(new_sum.shape)-1))
 
-                # Reduce along non-batch dimensions
-                if len(self._reduce_dims) > 0:
-                    # Each sample is now a reduction over _reduction_factor samples
-                    N *= self._reduction_factor
+                # Each sample is now a reduction over _reduction_factor samples
+                N *= self._reduction_factor
 
             average = torch.nan_to_num(new_sum / N, nan=0.0)
 
