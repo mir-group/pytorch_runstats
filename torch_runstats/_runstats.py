@@ -208,7 +208,7 @@ class RunningStats:
             average = torch.nan_to_num(new_sum / N, nan=0.0)
 
             if self._reduction == Reduction.RMS:
-                average = average.sqrt_()
+                average.sqrt_()
 
             return average, new_sum, N
 

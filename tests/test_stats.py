@@ -97,11 +97,13 @@ def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allc
             res = runstats.accumulate_batch(batch, accumulate_by=accumulate_by)
             assert allclose(truth, res)
         truth = truth_obj.current_result()
+        # double retrieval to check whether the sqrt was applied twice
+        res = runstats.current_result()
         res = runstats.current_result()
         assert allclose(truth, res)
         truth_obj.reset(reset_n_bins=True)
         runstats.reset(reset_n_bins=True)
-        
+
 @pytest.mark.parametrize("do_accumulate_by", [True, False])
 @pytest.mark.parametrize("nan_attrs", [True, False])
 def test_batching(do_accumulate_by, nan_attrs, allclose):
@@ -143,6 +145,7 @@ def test_batching(do_accumulate_by, nan_attrs, allclose):
             acc = None if accumulate_by is None else accumulate_by[loid:hiid]
             runstats.accumulate_batch(batch, accumulate_by=acc)
 
+        res = runstats.current_result()
         res = runstats.current_result()
         assert allclose(truth, res)
         print("T", truth)
