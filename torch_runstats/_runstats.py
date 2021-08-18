@@ -186,6 +186,7 @@ class RunningStats:
 
             if has_nan:
 
+
                 # get count
                 N = scatter(not_nan, accumulate_by, dim=0)
                 if len(self._reduce_dims) > 0:
@@ -254,6 +255,7 @@ class RunningStats:
             )
             N = torch.cat((N, N.new_zeros((-N_to_add,) + N.shape[1:])), dim=0)
 
+
         self._state += (new_sum - N * self._state) / (self._n + N)
         self._n += N
 
@@ -298,7 +300,7 @@ class RunningStats:
         if self._reduction == Reduction.MEAN:
             return self._state.clone()
         elif self._reduction == Reduction.RMS:
-            return self._state.sqrt_()
+            return self._state.sqrt()
 
     @property
     def n(self) -> torch.Tensor:
