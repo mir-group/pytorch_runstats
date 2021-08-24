@@ -179,6 +179,28 @@ def test_simple(reduction, allclose, dim):
     assert allclose(truth, res)
 
 
+@pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
+@pytest.mark.parametrize("dim", [tuple(), (2,), (1, 3, 2, 7, 2)])
+def test_simple_acc_by(reduction, allclose, dim):
+    runstats = RunningStats(dim=dim, reduction=reduction)
+    x = torch.randn((13,) + dim)
+    y = torch.randn((49,) + dim)
+    batched = torch.cat((x, y), dim=0)
+    acc_by = torch.cat((torch.zeros(len(x)), torch.ones(len(y)))).long()
+    if reduction == Reduction.MEAN:
+        truth_x = x.mean(dim=0)
+        truth_y = y.mean(dim=0)
+    elif reduction == Reduction.RMS:
+        truth_x = x.square().mean(dim=0).sqrt()
+        truth_y = y.square().mean(dim=0).sqrt()
+    else:
+        raise NotImplementedError
+    res = runstats.accumulate_batch(batch=batched, accumulate_by=acc_by)
+    assert res.shape == (2,) + dim  # 2 bins
+    assert allclose(truth_x, res[0])
+    assert allclose(truth_y, res[1])
+
+
 def test_raises():
     runstats = RunningStats(dim=4, reduction=Reduction.MEAN)
     with pytest.raises(ValueError):
