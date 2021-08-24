@@ -163,6 +163,22 @@ def test_zeros(reduction, allclose):
     assert allclose(runstats.current_result(), torch.zeros(dim))
 
 
+@pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
+@pytest.mark.parametrize("dim", [tuple(), (2,), (1, 3, 2, 7, 2)])
+def test_simple(reduction, allclose, dim):
+    runstats = RunningStats(dim=dim, reduction=reduction)
+    x = torch.randn((113,) + dim)
+    if reduction == Reduction.MEAN:
+        truth = x.mean(dim=0)
+    elif reduction == Reduction.RMS:
+        truth = x.square().mean(dim=0).sqrt()
+    else:
+        raise NotImplementedError
+    res = runstats.accumulate_batch(x)
+    assert res.shape == (1,) + dim  # one bin
+    assert allclose(truth, res)
+
+
 def test_raises():
     runstats = RunningStats(dim=4, reduction=Reduction.MEAN)
     with pytest.raises(ValueError):
