@@ -17,6 +17,7 @@ pytorch_runstats
  * Arbitrary sample shapes beyond single scalars
  * Reduction over arbitrary dimensions of each sample
  * "Batched"/"binned" reduction into multiple running tallies using a per-sample bin index. 
+ * Option to ignore NaN values with correct sample counting
   
   This can be useful, for example, in accumulating statistics over samples by some kind of "type" index or for accumulating statistics per-graph in a ``pytorch_geometric``-like `batching scheme <https://pytorch-geometric.readthedocs.io/en/latest/notes/batching.html>`_ . (This feature uses and is similar to `torch_scatter <https://pytorch-scatter.readthedocs.io/en/latest/functions/scatter.html>`_ .)
 
@@ -102,6 +103,42 @@ A reduction can also be taken over a sample dimension:
    # and the sample dimension of shape 2,
    # but that the dimension of size 3 has been reduced out:
    print(rs.current_result())  # => tensor([[0.6250, 0.6250]])
+
+
+Ignore NaNs
+^^^^^^^^^^^
+
+When the ``ignore_nan`` option is enabled, ``RunningStats`` will only count and reduce over non-NaN elements:
+
+.. code-block:: python
+
+   import torch
+   from torch_runstats import Reduction, RunningStats
+
+   NaN = float("nan")
+
+   data = torch.Tensor([
+      [1.0, NaN, NaN],
+      [NaN, NaN, NaN],
+      [1.0, NaN, 1.0],
+      [1.0, 3.0, 1.0],
+      [1.0, NaN, NaN]
+   ])
+   accumulate_by = torch.LongTensor([0, 0, 1, 1, 1])
+
+   rs = RunningStats(
+      dim=(3,),
+      reduction=Reduction.MEAN,
+      reduce_dims=0,  # reduce the sample dimension of size 3
+      ignore_nan=True
+   )
+   rs.accumulate_batch(data, accumulate_by=accumulate_by)
+   # In the first bin, we see that the mean was taken over only one sample-
+   # the one non-NaN sample, giving a value of 1.0
+   #
+   # In the second bin, we see that we got the mean of the non-NaN
+   # elements: (1 * 5 + 3) / 6 = 1.33333...
+   print(rs.current_result())  # => tensor([1.0000, 1.3333])
 
 
 Class Reference
