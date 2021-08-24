@@ -129,7 +129,7 @@ class RunningStats:
             batch = batch.square()
 
         # zero the nan entries
-        has_nan = torch.isnan(torch.mean(batch)) and self.has_nan
+        has_nan: bool = self.has_nan and torch.isnan(batch.min())
         if has_nan:
             not_nan = (batch == batch).int()
             batch = torch.nan_to_num(batch, nan=0.0)
@@ -169,14 +169,6 @@ class RunningStats:
             if len(N.shape) < len(new_sum.shape):
                 N = N.reshape(N.shape+(1,)*(len(new_sum.shape)-len(N.shape)))
 
-            # for the batch
-            average = torch.nan_to_num(new_sum / N, nan=0.0)
-
-            if self._reduction == Reduction.RMS:
-                average.sqrt_()
-
-            return average.unsqueeze(0), new_sum, N
-
         else:
 
             # can only handle 1 dimensional accumulate_by
@@ -186,10 +178,11 @@ class RunningStats:
 
             if has_nan:
 
-
-                # get count
+                # get count of non-nan per bin
                 N = scatter(not_nan, accumulate_by, dim=0)
+
                 if len(self._reduce_dims) > 0:
+                    # Get total count in each reduced bin
                     N = N.sum(dim=reduce_dims)
 
                 # reduce along the first (batch) dimension using accumulate_by
@@ -205,12 +198,14 @@ class RunningStats:
                 # Each sample is now a reduction over _reduction_factor samples
                 N *= self._reduction_factor
 
-            average = torch.nan_to_num(new_sum / N, nan=0.0)
+        # Finally, do the average:
+        average = new_sum / N
+        average.nan_to_num_(nan=0.0)
 
-            if self._reduction == Reduction.RMS:
-                average.sqrt_()
+        if self._reduction == Reduction.RMS:
+            average.sqrt_()
 
-            return average, new_sum, N
+        return average, new_sum, N
 
     def accumulate_batch(
         self, batch: torch.Tensor, accumulate_by: Optional[torch.Tensor] = None
