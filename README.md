@@ -25,7 +25,7 @@ The library can be installed from PyPI:
 $ pip install torch_runstats
 ```
 
-The latest version of the code can also be installed from `git`:
+The latest development version of the code can also be installed from `git`:
 ```bash
 $ git clone https://github.com/mir-group/pytorch_runstats
 ```
