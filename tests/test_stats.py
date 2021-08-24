@@ -78,8 +78,8 @@ class StatsTruth(RunningStats):
 def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allclose):
 
     n_batchs = (random.randint(1, 4), random.randint(1, 4))
-    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
-    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
+    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
+    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
 
     for n_batch in n_batchs:
         for _ in range(n_batch):
@@ -122,12 +122,12 @@ def test_batching(do_accumulate_by, nan_attrs, allclose):
             data.view(-1)[idx] = float("NaN")
 
     # compute ground truth
-    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
+    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
     truth_obj.accumulate_batch(data, accumulate_by=accumulate_by)
     truth = truth_obj.current_result()
     del truth_obj
 
-    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, has_nan=nan_attrs)
+    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
 
     for stride in [1, 3, 5, 7, 13, 100]:
         n_batch = n_samples // stride
@@ -165,8 +165,9 @@ def test_zeros(reduction, allclose):
 
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
 @pytest.mark.parametrize("dim", [tuple(), (2,), (1, 3, 2, 7, 2)])
-def test_simple(reduction, allclose, dim):
-    runstats = RunningStats(dim=dim, reduction=reduction)
+@pytest.mark.parametrize("nan", [True, False])
+def test_simple(reduction, allclose, dim, nan):
+    runstats = RunningStats(dim=dim, reduction=reduction, ignore_nan=nan)
     x = torch.randn((113,) + dim)
     if reduction == Reduction.MEAN:
         truth = x.mean(dim=0)
@@ -174,6 +175,8 @@ def test_simple(reduction, allclose, dim):
         truth = x.square().mean(dim=0).sqrt()
     else:
         raise NotImplementedError
+    if nan:
+        x = torch.cat((x, torch.full((7,) + dim, float("nan"))))
     res = runstats.accumulate_batch(x)
     assert res.shape == (1,) + dim  # one bin
     assert allclose(truth, res)
