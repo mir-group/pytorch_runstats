@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Most recent change on the bottom.
 
-## [Unreleased]
+## [0.2.0] - Unreleased
+
+### Added
+- Option to mask out values, with correct counting, using NaN
 
 ## [0.1.0] - 2021-05-28
