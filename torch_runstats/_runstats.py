@@ -45,7 +45,7 @@ class RunningStats:
             This is a tuple of dimension indexes that are interpreted as dimension indexes within each *sample*: ``reduce_dims=(1,)`` implies that in a batch of size ``(N, A, B, C)`` with ``dim = (A, B, C)`` the ``N`` and ``B`` dimensions will be reduced over. (To reduce over ``A`` instead, you would use ``reduce_dims=(0,)`` to reduce over the first non-batch dimension.)
 
             By default an empty tuple, i.e., reduce only over the batch dimension.
-        has_nan: if True, the nan term in the matrix will be excluded for statstistics
+        ignore_nan: if True, NaNs in the data will be ignored, both in the accumulation and the sample count. If False (default), NaNs will propagate as normal.
     """
 
     _in_dim: Tuple[int, ...]
@@ -59,7 +59,7 @@ class RunningStats:
         dim: Union[int, Tuple[int, ...]] = 1,
         reduction: Reduction = Reduction.MEAN,
         reduce_dims: Union[int, Sequence[int]] = tuple(),
-        has_nan = False,
+        ignore_nan: bool = False,
     ):
         if isinstance(dim, numbers.Integral):
             self._dim = (dim,)
@@ -95,7 +95,7 @@ class RunningStats:
         if reduction not in (Reduction.MEAN, Reduction.RMS):
             raise NotImplementedError(f"Reduction {reduction} not yet implimented")
         self._reduction = reduction
-        self.has_nan = has_nan
+        self.ignore_nan = ignore_nan
 
         self.reset()
 
@@ -129,7 +129,9 @@ class RunningStats:
             batch = batch.square()
 
         # zero the nan entries
-        has_nan: bool = self.has_nan and torch.isnan(batch.min())
+        # short circut, if ignore_nan is False we don't need to check--
+        # everything will just propagate automatically
+        has_nan: bool = self.ignore_nan and torch.isnan(batch.min())
         if has_nan:
             not_nan = (batch == batch).int()
             batch = torch.nan_to_num(batch, nan=0.0)

@@ -8,4 +8,7 @@ Most recent change on the bottom.
 
 ## [Unreleased]
 
+### Added
+- Option to mask out values, with correct counting, using NaN
+
 ## [0.1.0] - 2021-05-28
