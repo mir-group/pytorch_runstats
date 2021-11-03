@@ -11,4 +11,7 @@ Most recent change on the bottom.
 ### Added
 - Option to mask out values, with correct counting, using NaN
 
+### Removed
+- Dependency on `torch_scatter`
+
 ## [0.1.0] - 2021-05-28

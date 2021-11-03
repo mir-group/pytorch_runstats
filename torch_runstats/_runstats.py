@@ -5,7 +5,7 @@ import enum
 import numbers
 
 import torch
-from torch_scatter import scatter
+from .scatter import scatter
 
 
 def _prod(x):
@@ -161,7 +161,7 @@ class RunningStats:
 
             else:
 
-                new_sum = new_sum.sum(dim=(0, ), keepdim=True)
+                new_sum = new_sum.sum(dim=(0,), keepdim=True)
                 # since all types are 0, the first dimension should be 1
                 N = (
                     torch.as_tensor([batch.shape[0]], dtype=torch.long, device=device)
@@ -169,7 +169,7 @@ class RunningStats:
                 )
 
             if len(N.shape) < len(new_sum.shape):
-                N = N.reshape(N.shape+(1,)*(len(new_sum.shape)-len(N.shape)))
+                N = N.reshape(N.shape + (1,) * (len(new_sum.shape) - len(N.shape)))
 
         else:
 
@@ -195,7 +195,9 @@ class RunningStats:
                 # reduce along the first (batch) dimension using accumulate_by
                 new_sum = scatter(new_sum, accumulate_by, dim=0)
 
-                N = torch.bincount(accumulate_by).reshape((-1,)+(1,)*(len(new_sum.shape)-1))
+                N = torch.bincount(accumulate_by).reshape(
+                    (-1,) + (1,) * (len(new_sum.shape) - 1)
+                )
 
                 # Each sample is now a reduction over _reduction_factor samples
                 N *= self._reduction_factor
@@ -237,10 +239,15 @@ class RunningStats:
 
             # time to expand
             self._state = torch.cat(
-                (self._state, self._state.new_zeros((N_to_add,) + self._state.shape[1:])),
+                (
+                    self._state,
+                    self._state.new_zeros((N_to_add,) + self._state.shape[1:]),
+                ),
                 dim=0,
             )
-            self._n = torch.cat((self._n, self._n.new_zeros((N_to_add, )+self._n.shape[1:])), dim=0)
+            self._n = torch.cat(
+                (self._n, self._n.new_zeros((N_to_add,) + self._n.shape[1:])), dim=0
+            )
 
             # assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
             self._n_bins += N_to_add
@@ -251,7 +258,6 @@ class RunningStats:
                 (new_sum, new_sum.new_zeros((-N_to_add,) + new_sum.shape[1:])), dim=0
             )
             N = torch.cat((N, N.new_zeros((-N_to_add,) + N.shape[1:])), dim=0)
-
 
         self._state += (new_sum - N * self._state) / (self._n + N)
         self._n += N
@@ -274,7 +280,7 @@ class RunningStats:
             self._n.fill_(0)
         else:
             self._n_bins = 1
-            self._n = torch.zeros((self._n_bins,)+self._dim, dtype=torch.long)
+            self._n = torch.zeros((self._n_bins,) + self._dim, dtype=torch.long)
             self._state = torch.zeros((self._n_bins,) + self._dim)
 
     def to(self, device=None, dtype=None) -> None:

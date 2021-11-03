@@ -6,7 +6,6 @@ import pytest
 import random
 
 import torch
-from torch_scatter import scatter
 
 from torch_runstats import RunningStats, Reduction
 
@@ -53,7 +52,7 @@ class StatsTruth(RunningStats):
 
         if len(average) < self._n_bins:
             N_to_add = self._n_bins - len(average)
-            average = torch.cat((average, torch.zeros((N_to_add,)+average.shape[1:])))
+            average = torch.cat((average, torch.zeros((N_to_add,) + average.shape[1:])))
 
         return average
 
@@ -78,8 +77,12 @@ class StatsTruth(RunningStats):
 def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allclose):
 
     n_batchs = (random.randint(1, 4), random.randint(1, 4))
-    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
-    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
+    truth_obj = StatsTruth(
+        dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs
+    )
+    runstats = RunningStats(
+        dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs
+    )
 
     for n_batch in n_batchs:
         for _ in range(n_batch):
@@ -104,6 +107,7 @@ def test_runstats(dim, reduce_dims, nan_attrs, reduction, do_accumulate_by, allc
         truth_obj.reset(reset_n_bins=True)
         runstats.reset(reset_n_bins=True)
 
+
 @pytest.mark.parametrize("do_accumulate_by", [True, False])
 @pytest.mark.parametrize("nan_attrs", [True, False])
 def test_batching(do_accumulate_by, nan_attrs, allclose):
@@ -115,29 +119,35 @@ def test_batching(do_accumulate_by, nan_attrs, allclose):
 
     # generate reference data
     data = torch.randn((n_samples,) + dim)
-    accumulate_by = torch.randint(0, 5, size=(data.shape[0],)) if do_accumulate_by else None
+    accumulate_by = (
+        torch.randint(0, 5, size=(data.shape[0],)) if do_accumulate_by else None
+    )
     if nan_attrs:
         ids = torch.randperm(n_samples)[:10]
         for idx in ids:
             data.view(-1)[idx] = float("NaN")
 
     # compute ground truth
-    truth_obj = StatsTruth(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
+    truth_obj = StatsTruth(
+        dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs
+    )
     truth_obj.accumulate_batch(data, accumulate_by=accumulate_by)
     truth = truth_obj.current_result()
     del truth_obj
 
-    runstats = RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs)
+    runstats = RunningStats(
+        dim=dim, reduction=reduction, reduce_dims=reduce_dims, ignore_nan=nan_attrs
+    )
 
     for stride in [1, 3, 5, 7, 13, 100]:
         n_batch = n_samples // stride
-        if n_batch*stride < n_samples:
+        if n_batch * stride < n_samples:
             n_batch += 1
         count = 0
         for idx in range(n_batch):
 
             loid = count
-            hiid = count+stride
+            hiid = count + stride
             hiid = n_samples if hiid > n_samples else hiid
             count += stride
 
