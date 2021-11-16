@@ -1,11 +1,19 @@
 import setuptools
+from pathlib import Path
+
+# see https://packaging.python.org/guides/single-sourcing-package-version/
+version_dict = {}
+with open(Path(__file__).parents[0] / "torch_runstats/_version.py") as fp:
+    exec(fp.read(), version_dict)
+version = version_dict["__version__"]
+del version_dict
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name="torch_runstats",
-    version="0.2.0",
+    version=version,
     url="https://github.com/mir-group/pytorch_runstats",
     description="Running/online statistics for PyTorch ",
     long_description=long_description,
