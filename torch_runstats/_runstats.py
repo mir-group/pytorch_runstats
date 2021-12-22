@@ -317,6 +317,21 @@ class RunningStats:
         self._n = n.to(dtype=self._n.dtype, device=self._n.device)
         self._state = state.to(dtype=self._state.dtype, device=self._state.device)
 
+    def accumulate_state(self, state: Tuple[torch.Tensor, ...]) -> None:
+        """ """
+        n, state = state
+        N_to_add = len(n) - self.n_bins
+        if N_to_add > 0:
+            self._expand_state(N_to_add)
+        elif N_to_add < 0:
+            # need to expand the parameter state
+            n = _pad_dim0(n, -N_to_add)
+            state = _pad_dim0(state, -N_to_add)
+        self._state += n * (state - self._state) / (self._n + n)
+        self._n += n
+        # Make div by zero 0
+        self._state = torch.nan_to_num_(self._state, nan=0.0)
+
     @property
     def n(self) -> torch.Tensor:
         """The number of samples processed so far in each bin.

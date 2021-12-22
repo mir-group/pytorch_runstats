@@ -8,7 +8,8 @@ Most recent change on the bottom.
 
 ## [Unreleased]
 ### Added
- - `get_state` and `set_state` methods
+ - Added `get_state` and `set_state` methods
+ - Added `accumulate_state` method
 
 ## [0.2.0] - 2021-11-22
 
