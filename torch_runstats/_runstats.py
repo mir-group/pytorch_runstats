@@ -6,6 +6,7 @@ import numbers
 
 import torch
 from .scatter import scatter
+from ._util import _pad_dim0
 
 
 def _prod(x):
@@ -236,28 +237,10 @@ class RunningStats:
         # do we need new bins?
         N_to_add = new_sum.shape[0] - self._n_bins
         if N_to_add > 0:
-
-            # time to expand
-            self._state = torch.cat(
-                (
-                    self._state,
-                    self._state.new_zeros((N_to_add,) + self._state.shape[1:]),
-                ),
-                dim=0,
-            )
-            self._n = torch.cat(
-                (self._n, self._n.new_zeros((N_to_add,) + self._n.shape[1:])), dim=0
-            )
-
-            # assert self._state.shape == (self._n_bins + N_to_add,) + self._dim
-            self._n_bins += N_to_add
-
+            self._expand_state(N_to_add)
         elif N_to_add < 0:
-
-            new_sum = torch.cat(
-                (new_sum, new_sum.new_zeros((-N_to_add,) + new_sum.shape[1:])), dim=0
-            )
-            N = torch.cat((N, N.new_zeros((-N_to_add,) + N.shape[1:])), dim=0)
+            new_sum = _pad_dim0(new_sum, -N_to_add)
+            N = _pad_dim0(N, -N_to_add)
 
         self._state += (new_sum - N * self._state) / (self._n + N)
         self._n += N
@@ -305,6 +288,35 @@ class RunningStats:
         elif self._reduction == Reduction.RMS:
             return self._state.sqrt()
 
+    def get_state(self) -> Tuple[torch.Tensor, ...]:
+        """Get the current internal state of the object for later use.
+
+        The contents of this tuple of tensors has no gueranteed format and should
+        only be used within a program and with ``RunningStats`` objects that were
+        constructed with exactly identical parameters. The format of the result
+        is NOT gueranteed to be consistant across versions and should not be
+        serialized.
+
+        The returned tensors are copies of the internal state and are safe to
+        mutate.
+
+        Returns:
+            a tuple of tensors.
+        """
+        return tuple(t.clone() for t in (self._n, self._state))
+
+    def set_state(self, state: Tuple[torch.Tensor, ...]) -> None:
+        """Set the internal state of this object to ``state`` from an earlier call to ``get_state``.
+
+        Args:
+            state: an internal state of a ``RunningStats`` object of identical parameters retreived
+                with calling its ``get_state`` method.
+        """
+        n, state = state
+        self._n_bins = len(n)
+        self._n = n.to(dtype=self._n.dtype, device=self._n.device)
+        self._state = state.to(dtype=self._state.dtype, device=self._state.device)
+
     @property
     def n(self) -> torch.Tensor:
         """The number of samples processed so far in each bin.
@@ -338,3 +350,21 @@ class RunningStats:
     def reduction(self) -> Reduction:
         """The reduction computed by this object."""
         return self._reduction
+
+    def _expand_state(self, N_to_add: int) -> None:
+        if N_to_add == 0:
+            return
+        elif N_to_add < 0:
+            raise ValueError
+        # time to expand
+        self._state = torch.cat(
+            (
+                self._state,
+                self._state.new_zeros((N_to_add,) + self._state.shape[1:]),
+            ),
+            dim=0,
+        )
+        self._n = torch.cat(
+            (self._n, self._n.new_zeros((N_to_add,) + self._n.shape[1:])), dim=0
+        )
+        self._n_bins += N_to_add
