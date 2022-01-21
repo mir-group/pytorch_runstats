@@ -163,6 +163,88 @@ def test_batching(do_accumulate_by, nan_attrs, allclose):
         runstats.reset(reset_n_bins=True)
 
 
+@pytest.mark.parametrize(
+    "dim,reduce_dims",
+    [
+        (1, tuple()),
+        (1, (0,)),
+        (3, tuple()),
+        (3, (0,)),
+        ((2, 3), tuple()),
+        (torch.Size((1, 2, 1)), tuple()),
+        (torch.Size((1, 2, 1)), (1,)),
+        (torch.Size((3, 2, 4)), (0, 2)),
+        (torch.Size((3, 2, 4)), (0, 1, 2)),
+    ],
+)
+@pytest.mark.parametrize("do_accumulate_by", [True, False])
+@pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
+def test_state(dim, reduce_dims, do_accumulate_by, reduction, allclose):
+    runstats1, runstats2 = [
+        RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
+        for _ in range(2)
+    ]
+    batch1, batch2 = [
+        torch.randn((random.randint(1, 10),) + runstats1.dim) for _ in range(2)
+    ]
+    if do_accumulate_by:
+        acc_by1, acc_by2 = [
+            torch.randint(0, random.randint(1, 5), size=(batch.shape[0],))
+            for batch in (batch1, batch2)
+        ]
+    else:
+        acc_by1, acc_by2 = None, None
+    runstats1.accumulate_batch(batch1, accumulate_by=acc_by1)
+    runstats2.accumulate_batch(batch2, accumulate_by=acc_by2)
+    _, res2 = runstats1.current_result(), runstats2.current_result()
+    # now, load the state of 2 -> 1
+    runstats1.set_state(runstats2.get_state())
+    # should be the same since moved the state
+    assert allclose(runstats1.current_result(), res2)
+
+
+@pytest.mark.parametrize(
+    "dim,reduce_dims",
+    [
+        (1, tuple()),
+        (1, (0,)),
+        (3, tuple()),
+        (3, (0,)),
+        ((2, 3), tuple()),
+        (torch.Size((1, 2, 1)), tuple()),
+        (torch.Size((1, 2, 1)), (1,)),
+        (torch.Size((3, 2, 4)), (0, 2)),
+        (torch.Size((3, 2, 4)), (0, 1, 2)),
+    ],
+)
+@pytest.mark.parametrize("do_accumulate_by", [True, False])
+@pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
+def test_accumulate_state(dim, reduce_dims, do_accumulate_by, reduction, allclose):
+    runstats1, runstats2, runstats3 = [
+        RunningStats(dim=dim, reduction=reduction, reduce_dims=reduce_dims)
+        for _ in range(3)
+    ]
+    batch1, batch2 = [
+        torch.randn((random.randint(1, 10),) + runstats1.dim) for _ in range(2)
+    ]
+    if do_accumulate_by:
+        acc_by1, acc_by2 = [
+            torch.randint(0, random.randint(1, 5), size=(batch.shape[0],))
+            for batch in (batch1, batch2)
+        ]
+    else:
+        acc_by1, acc_by2 = None, None
+    runstats1.accumulate_batch(batch1, accumulate_by=acc_by1)
+    runstats2.accumulate_batch(batch2, accumulate_by=acc_by2)
+    # now accumulate batch2 into runstats1 through the state
+    runstats1.accumulate_state(runstats2.get_state())
+    # and make a truth baseline
+    runstats3.accumulate_batch(batch1, accumulate_by=acc_by1)
+    runstats3.accumulate_batch(batch2, accumulate_by=acc_by2)
+    # and check:
+    assert allclose(runstats1.current_result(), runstats3.current_result())
+
+
 @pytest.mark.parametrize("reduction", [Reduction.MEAN, Reduction.RMS])
 def test_zeros(reduction, allclose):
     dim = (4,)
