@@ -196,7 +196,7 @@ def test_state(dim, reduce_dims, do_accumulate_by, reduction, allclose):
         acc_by1, acc_by2 = None, None
     runstats1.accumulate_batch(batch1, accumulate_by=acc_by1)
     runstats2.accumulate_batch(batch2, accumulate_by=acc_by2)
-    res1, res2 = runstats1.current_result(), runstats2.current_result()
+    _, res2 = runstats1.current_result(), runstats2.current_result()
     # now, load the state of 2 -> 1
     runstats1.set_state(runstats2.get_state())
     # should be the same since moved the state
