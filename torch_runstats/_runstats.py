@@ -319,7 +319,9 @@ class RunningStats:
 
     def accumulate_state(self, state: Tuple[torch.Tensor, ...]) -> None:
         """ """
-        n, state = state
+        device = self._state.device
+        n, state = [e.to(device) for e in state]
+
         N_to_add = len(n) - self.n_bins
         if N_to_add > 0:
             self._expand_state(N_to_add)
@@ -328,9 +330,8 @@ class RunningStats:
             n = _pad_dim0(n, -N_to_add)
             state = _pad_dim0(state, -N_to_add)
 
-        device = self._state.device
-        self._state += n.to(device) * (state.to(device) - self._state) / (self._n + n.to(device))
-        self._n += n.to(device)
+        self._state += n * (state - self._state) / (self._n + n)
+        self._n += n
         # Make div by zero 0
         self._state = torch.nan_to_num_(self._state, nan=0.0)
 
